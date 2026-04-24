@@ -199,12 +199,20 @@ public:
             case 5: return rs1_val << (rs2_val & 0x1F); // SLL
             case 6: return rs1_val >> (rs2_val & 0x1F); // SRL
             case 7: return int32_t(rs1_val) >> (rs2_val & 0x1F); // SRA
-            case 8: return rs1_val + rs2_val; // ADDI (treated as ADD)
-            case 9: return rs1_val & rs2_val; // ANDI (treated as AND)
-            case 10: return rs1_val | rs2_val; // ORI (treated as OR)
-            case 11: return rs1_val ^ rs2_val; // XORI (treated as XOR)
-            case 12: return rs1_val < rs2_val ? 1 : 0; // SLT
-            case 13: return rs1_val < rs2_val ? 1 : 0; // SLTU (simplified)
+            case 8: return rs1_val + rs2_val; // ADDI (treated as ADD with immediate)
+            case 9: return rs1_val & rs2_val; // ANDI (treated as AND with immediate)
+            case 10: return rs1_val | rs2_val; // ORI (treated as OR with immediate)
+            case 11: return rs1_val ^ rs2_val; // XORI (treated as XOR with immediate)
+            case 12: return (int32_t(rs1_val) < int32_t(rs2_val)) ? 1 : 0; // SLT
+            case 13: return (rs1_val < rs2_val) ? 1 : 0; // SLTU
+            case 14: return rs1_val + rs2_val; // LW address calculation
+            case 15: return rs1_val + rs2_val; // SW address calculation
+            case 16: return rs1_val + rs2_val; // BEQ comparison
+            case 17: return rs1_val != rs2_val ? 1 : 0; // BNE comparison
+            case 18: return rs1_val < rs2_val ? 1 : 0; // BLT comparison
+            case 19: return rs1_val >= rs2_val ? 1 : 0; // BGE comparison
+            case 20: return rs1_val + rs2_val; // JAL address
+            case 21: return rs1_val + rs2_val; // JALR address
             default: return 0;
         }
     }
@@ -228,8 +236,14 @@ public:
                 alu_src = true;
                 if (funct3 == 0x0) alu_op = 8; // ADDI
                 else if (funct3 == 0x4) alu_op = 11; // XORI
-                else if (funct3 == 0x6) alu_op = 9; // ORI
-                else if (funct3 == 0x7) alu_op = 10; // ANDI
+                else if (funct3 == 0x6) alu_op = 10; // ORI
+                else if (funct3 == 0x7) alu_op = 9; // ANDI
+                else if (funct3 == 0x1) alu_op = 5; // SLLI
+                else if (funct3 == 0x5) {
+                    if (funct7 == 0x0) alu_op = 6; // SRLI
+                    else if (funct7 == 0x20) alu_op = 7; // SRAI
+                } else if (funct3 == 0x2) alu_op = 12; // SLTI
+                else if (funct3 == 0x3) alu_op = 13; // SLTIU
                 break;
             case 0x23: // Store
                 mem_write = true;
@@ -289,12 +303,25 @@ public:
             }
             
             // Handle branch/jump
-            if (ex_mem.branch && ex_mem.zero) {
-                pc = ex_mem.alu_result;
-                flush = true;
+            if (ex_mem.branch) {
+                // Different branch types based on alu_op
+                bool should_branch = false;
+                if (id_ex.alu_op == 16) should_branch = ex_mem.zero; // BEQ
+                else if (id_ex.alu_op == 17) should_branch = !ex_mem.zero; // BNE
+                else if (id_ex.alu_op == 18) should_branch = (int32_t(id_ex.rs1_val) < int32_t(id_ex.rs2_val)); // BLT
+                else if (id_ex.alu_op == 19) should_branch = (int32_t(id_ex.rs1_val) >= int32_t(id_ex.rs2_val)); // BGE
+                
+                if (should_branch) {
+                    pc = ex_mem.alu_result;
+                    flush = true;
+                }
             }
             
             if (ex_mem.jump) {
+                // For JAL and JALR, write return address to rd
+                if (ex_mem.rd != 0) {
+                    regs[ex_mem.rd] = id_ex.pc_plus_4;
+                }
                 pc = ex_mem.alu_result;
                 flush = true;
             }
@@ -314,10 +341,26 @@ public:
             ex_mem.jump = id_ex.jump;
             
             uint32_t alu_input2 = id_ex.alu_src ? id_ex.imm : id_ex.rs2_val;
-            ex_mem.alu_result = aluOperation(id_ex.alu_op, id_ex.rs1_val, alu_input2, 
-                                           id_ex.funct3, id_ex.funct7);
+            
+            // Handle special instructions
+            if (id_ex.opcode == 0x37) { // LUI
+                ex_mem.alu_result = id_ex.imm;
+            } else if (id_ex.opcode == 0x17) { // AUIPC
+                ex_mem.alu_result = id_ex.pc_plus_4 + id_ex.imm - 4;
+            } else if (id_ex.opcode == 0x6F) { // JAL
+                ex_mem.alu_result = id_ex.pc_plus_4 + id_ex.imm - 4;
+            } else if (id_ex.opcode == 0x67) { // JALR
+                ex_mem.alu_result = (id_ex.rs1_val + id_ex.imm) & ~1;
+            } else if (id_ex.opcode == 0x63) { // Branch
+                ex_mem.alu_result = id_ex.pc_plus_4 + id_ex.imm - 4;
+                ex_mem.zero = (id_ex.rs1_val == id_ex.rs2_val);
+            } else {
+                ex_mem.alu_result = aluOperation(id_ex.alu_op, id_ex.rs1_val, alu_input2, 
+                                               id_ex.funct3, id_ex.funct7);
+                ex_mem.zero = (id_ex.rs1_val == id_ex.rs2_val);
+            }
+            
             ex_mem.rs2_val = id_ex.rs2_val;
-            ex_mem.zero = (id_ex.rs1_val == id_ex.rs2_val);
         } else {
             ex_mem.valid = false;
         }
@@ -395,8 +438,14 @@ public:
     
     // Run simulation
     uint32_t run() {
-        while (!halted && cycles < 10000) { // Prevent infinite loops
+        while (!halted && cycles < 100000) { // Prevent infinite loops
             step();
+            
+            // Better halt condition: check if we have an invalid instruction
+            // or if PC goes out of bounds
+            if (pc >= MEMORY_SIZE || (if_id.instruction == 0 && cycles > 20)) {
+                halted = true;
+            }
         }
         return cycles;
     }
