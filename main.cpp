@@ -436,6 +436,14 @@ public:
         }
     }
     
+    // Get register value
+    uint32_t getRegister(uint32_t reg_num) const {
+        if (reg_num < 32) {
+            return regs[reg_num];
+        }
+        return 0;
+    }
+
     // Run simulation
     uint32_t run() {
         while (!halted && cycles < 100000) { // Prevent infinite loops
@@ -469,7 +477,10 @@ int main() {
     // Load and run program
     if (simulator.loadProgram("temp_input.data")) {
         uint32_t cycles = simulator.run();
-        cout << cycles << endl;
+        
+        // Output the return value (standard RISC-V calling convention uses x10/a0)
+        // The problem mentions return value marked in .c files as comments is standard output
+        cout << simulator.getRegister(10) << endl;
     } else {
         cout << "0" << endl;
     }
