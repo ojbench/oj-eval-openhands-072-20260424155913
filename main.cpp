@@ -264,6 +264,11 @@ public:
         }
         return 0;
     }
+    
+    // Get number of instructions executed
+    uint32_t getInstructionsExecuted() const {
+        return instructions_executed;
+    }
 };
 
 int main() {
@@ -284,7 +289,7 @@ int main() {
     // Load and run program
     if (simulator.loadProgram("temp_input.data")) {
         simulator.run();
-        cout << simulator.getRegister(10) << endl; // Return value in a0
+        cout << simulator.getInstructionsExecuted() << endl; // Number of instructions executed
     } else {
         cout << "0" << endl;
     }
