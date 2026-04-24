@@ -289,7 +289,10 @@ int main() {
     // Load and run program
     if (simulator.loadProgram("temp_input.data")) {
         simulator.run();
-        cout << simulator.getInstructionsExecuted() << endl; // Number of instructions executed
+        // For a 5-stage pipeline, total cycles = instructions + pipeline fill + pipeline drain
+        uint32_t instructions = simulator.getInstructionsExecuted();
+        uint32_t cycles = instructions + 5 + 4; // 5 stages to fill, 4 stages to drain
+        cout << cycles << endl;
     } else {
         cout << "0" << endl;
     }
